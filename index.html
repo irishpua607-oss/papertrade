@@ -40,7 +40,7 @@ canvas{width:100%;height:220px;margin-top:10px;background:#08110b;border-radius:
 <div class="grid">
 <div><label>DATA SOURCE</label><select id="src"><option value="hl">Hyperliquid</option><option value="by">Bybit</option><option value="bn">Binance</option></select></div>
 <div><label>DAYS</label><input id="days" type="number" value="365"></div>
-<div><label>CONFIGS</label><input id="nc" type="number" value="3000"></div>
+<div><label>CONFIGS</label><input id="nc" type="number" value="1000"></div>
 <div><label>FEE/SIDE %</label><input id="fee" type="number" step=".01" value="0.05"></div>
 <div><label>SLIPPAGE %</label><input id="slip" type="number" step=".01" value="0.03"></div>
 <div><label>RISK/TRADE %</label><input id="risk" type="number" step=".1" value="1"></div>
@@ -93,10 +93,12 @@ function atr(){return C("a",()=>{const a=new Float64Array(D.length).fill(NaN);le
 function ext(n,hi){return C((hi?"h":"l")+n,()=>{const a=new Float64Array(D.length).fill(NaN);for(let i=n;i<D.length;i++){let m=hi?-1e18:1e18;for(let j=i-n;j<i;j++)m=hi?Math.max(m,D[j].h):Math.min(m,D[j].l);a[i]=m}return a})}
 function sig(c,j){
   const p=D[j].c,at=atr()[j];if(!(at>0))return 0;
-  if(c.t===0){const f=sma(c.a)[j],s=sma(c.b)[j];if(p>f&&f>s)return 1;if(p<f&&f<s)return P.sh?-1:0}
-  else if(c.t===1){const z=(p-sma(c.a)[j])/at;if(z<-c.k)return 1;if(z>c.k)return P.sh?-1:0}
-  else if(c.t===2){if(p>ext(c.a,1)[j])return 1;if(p<ext(c.a,0)[j])return P.sh?-1:0}
-  else{if(p<sma(c.a)[j]-c.k*at)return 1}
+  if(!c.r)Object.defineProperty(c,"r",{value:c.t===0?[sma(c.a),sma(c.b)]:c.t===2?[ext(c.a,1),ext(c.a,0)]:[sma(c.a)],enumerable:false,configurable:true,writable:true});
+  const r=c.r;
+  if(c.t===0){const f=r[0][j],s=r[1][j];if(p>f&&f>s)return 1;if(p<f&&f<s)return P.sh?-1:0}
+  else if(c.t===1){const z=(p-r[0][j])/at;if(z<-c.k)return 1;if(z>c.k)return P.sh?-1:0}
+  else if(c.t===2){if(p>r[0][j])return 1;if(p<r[1][j])return P.sh?-1:0}
+  else{if(p<r[0][j]-c.k*at)return 1}
   return 0}
 function bt(c,a,b,wantCurve){
   const A=atr();let eq=1,pos=null,n=0,gw=0,gl=0,peak=1,dd=0;const curve=wantCurve?[]:null;
@@ -155,7 +157,7 @@ async function go(real){
       if(ok(tr,30,1.2)){p2++;const va=bt(c,i1,i2);
         if(ok(va,10,1.1)){p3++;const ho=bt(c,i2,L);
           if(ok(ho,10,1.1)){p4++;ty[c.t]++;survivors.push({c,tr,va,ho})}}}
-      if(k%100===99||k===N-1){
+      if(k%10===9||k===N-1){
         $("p2").textContent=p2;$("p3").textContent=p3;$("p4").textContent=p4;$("sS").textContent=p4;
         $("sK").textContent=((N-p4)/N*100).toFixed(1)+"%";ty.forEach((v,i)=>$("t"+i).textContent=v);
         $("status").textContent=`Tumatakbo ${k+1}/${N}...`;await new Promise(r=>setTimeout(r))}}
@@ -178,6 +180,8 @@ function render(i1,i2,N){
   x.strokeStyle=COL[b.c.t];x.lineWidth=2.5;x.beginPath();cur.forEach((v,i)=>i?x.lineTo(X(i),Y(v)):x.moveTo(X(i),Y(v)));x.stroke()}
 $("bR").onclick=()=>go(true);$("bS").onclick=()=>go(false);
 $("bX").onclick=()=>{const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([JSON.stringify(survivors.map(s=>({type:NAMES[s.c.t],cfg:s.c,train:s.tr.ret,val:s.va.ret,hold:s.ho.ret})),null,1)],{type:"application/json"}));a.download="survivors.json";a.click()};
+window.addEventListener("error",e=>{$("status").textContent="JS error: "+e.message});
+window.addEventListener("unhandledrejection",e=>{$("status").textContent="Error: "+(e.reason&&e.reason.message||e.reason)});
 /* PAPER TRADING */
 let PT=null,timer=null;const PK="paperState";
 const readP=()=>({fee:+$("fee").value/100,slip:+$("slip").value/100,risk:+$("risk").value/100,lev:+$("lev").value,sh:+$("sh").value});
@@ -200,14 +204,14 @@ function pStep(i){
   PT.lastT=bar.t}
 async function pTick(){
   if(!PT)return;
-  try{P=readP();D=await load($("src").value,30);cache={};const now=Date.now();
+  try{P=readP();D=await load($("src").value,30);cache={};delete PT.c.r;const now=Date.now();
     for(let i=1;i<D.length;i++){const b=D[i];if(b.t>PT.lastT&&b.t+36e5<=now)pStep(i)}
     pSave();pRender();$("pM").textContent="Huling check: "+new Date().toLocaleTimeString()+" (kada 1 minuto; ang signal ay sa bawat saradong 1h candle)"}
   catch(e){$("pM").textContent="Error: "+e.message}}
 function pRun(){clearInterval(timer);timer=setInterval(pTick,60000);pTick()}
 $("pGo").onclick=async()=>{
   if(!survivors.length){$("pM").textContent="Walang survivor. Patakbuhin muna ang search hanggang may lumabas.";return}
-  try{P=readP();D=await load($("src").value,30);cache={};
+  try{P=readP();D=await load($("src").value,30);cache={};delete survivors[0].c.r;
     const last=D.filter(b=>b.t+36e5<=Date.now()).pop();
     PT={c:survivors[0].c,eq:1,pos:null,tr:[],lastT:last.t};pSave();pRender();pRun()}
   catch(e){$("pM").textContent="Error: "+e.message}};
