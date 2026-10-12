@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="tl"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Strategy Search Machine</title>
+<style>
+:root{--g:#22ff66;--b:#14532d;--bg:#050a07;--c:#0a140e;--t:#cfe9d6;--m:#7c9a86}
+*{box-sizing:border-box}
+body{margin:0;background:radial-gradient(#0b2214,#050a07 70%);color:var(--t);font:14px ui-monospace,Menlo,Consolas,monospace;padding:14px;max-width:760px;margin:auto}
+.card{background:var(--c);border:1px solid var(--b);border-radius:12px;padding:16px;margin-bottom:14px}
+h1{margin:0;font-size:22px;letter-spacing:1px}h1 b{color:var(--g);text-shadow:0 0 12px #22ff6688}
+.sub{color:var(--m);font-size:12px;letter-spacing:2px;margin:6px 0 14px}
+.stats{display:flex;gap:26px;flex-wrap:wrap}.stats div{color:var(--m);font-size:12px;letter-spacing:2px}
+.stats span{display:block;color:#fff;font-size:30px;font-weight:700;letter-spacing:0}
+.stats .k{color:var(--g)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px}
+label{font-size:11px;color:var(--m);display:block;letter-spacing:1px}
+input,select{width:100%;padding:7px;background:#08110b;color:var(--t);border:1px solid var(--b);border-radius:6px;font:inherit}
+button{background:none;border:1px solid var(--g);color:var(--g);padding:9px 14px;border-radius:8px;font:inherit;font-weight:700;letter-spacing:1px;cursor:pointer;margin:12px 8px 0 0}
+button.on{background:var(--g);color:#031}button:disabled{opacity:.4}
+.pipe{display:grid;grid-template-columns:1fr 1fr;border:1px solid var(--b);margin-top:12px}
+.pipe div{padding:14px;border:1px solid var(--b);color:var(--m)}.pipe div b{display:block;color:var(--t);margin-bottom:8px;letter-spacing:1px}
+.pipe .hl{outline:2px solid var(--g);outline-offset:-2px;background:#0d2616}
+.dot{display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:10px}
+table{width:100%;border-collapse:collapse;font-size:12px}th,td{padding:6px 4px;text-align:left;border-bottom:1px solid var(--b)}th{color:var(--m)}
+canvas{width:100%;height:220px;margin-top:10px;background:#08110b;border-radius:8px}
+.msg{margin-top:12px;padding:12px;border:1px solid var(--g);border-radius:8px;color:var(--t)}
+.small{font-size:12px;color:var(--m)}
+</style></head><body>
+
+<div class="card">
+<h1>STRATEGY SEARCH <b>MACHINE</b></h1>
+<div class="sub">BTCUSDT · 1H · BACKTEST ONLY · NO REAL ORDERS</div>
+<div class="stats">
+<div>CONFIGS<span id="sN">0</span></div>
+<div>KILL RATE<span class="k" id="sK">–</span></div>
+<div>SURVIVORS<span id="sS">0</span></div></div>
+</div>
+
+<div class="card">
+<div class="grid">
+<div><label>DATA SOURCE</label><select id="src"><option value="hl">Hyperliquid</option><option value="by">Bybit</option><option value="bn">Binance</option></select></div>
+<div><label>DAYS</label><input id="days" type="number" value="365"></div>
+<div><label>CONFIGS</label><input id="nc" type="number" value="3000"></div>
+<div><label>FEE/SIDE %</label><input id="fee" type="number" step=".01" value="0.05"></div>
+<div><label>SLIPPAGE %</label><input id="slip" type="number" step=".01" value="0.03"></div>
+<div><label>RISK/TRADE %</label><input id="risk" type="number" step=".1" value="1"></div>
+<div><label>MAX LEVERAGE</label><input id="lev" type="number" value="2"></div>
+<div><label>ALLOW SHORTS</label><select id="sh"><option value="1">yes (perps)</option><option value="0">no (spot)</option></select></div>
+</div>
+<button id="bR" class="on">RUN · REAL DATA</button><button id="bS">TEST · RANDOM</button><button id="bX">EXPORT SURVIVORS</button>
+<div class="small" id="status" style="margin-top:10px">Pindutin ang Run.</div>
+</div>
+
+<div class="card">
+<div style="color:var(--g);font-weight:700">Pipeline: closed-loop search</div>
+<div class="small">Generate, backtest sa train, gate sa validation, survivor lang kung pumasa rin sa holdout. Hati ng data: 60% / 20% / 20% sa oras.</div>
+<div class="pipe">
+<div><b>01 GENERATE</b><span id="p1">0</span> configs</div>
+<div><b>02 TRAIN (60%)</b><span id="p2">0</span> passed</div>
+<div><b>03 VALIDATE (20%)</b><span id="p3">0</span> passed</div>
+<div class="hl"><b>04 HOLDOUT (20%)</b><span id="p4">0</span> passed</div></div>
+<div style="margin-top:16px">
+<div><i class="dot" style="background:#22ff66"></i>Trend regime <span id="t0">0</span> surviving</div>
+<div style="margin-top:6px"><i class="dot" style="background:#38bdf8"></i>Mean revert <span id="t1">0</span> surviving</div>
+<div style="margin-top:6px"><i class="dot" style="background:#fb923c"></i>Vol breakout <span id="t2">0</span> surviving</div>
+<div style="margin-top:6px"><i class="dot" style="background:#c084fc"></i>Dip buy <span id="t3">0</span> surviving</div></div>
+<div id="verdict"></div>
+</div>
+
+<div class="card">
+<div style="color:var(--g);font-weight:700">Survivors (best holdout)</div>
+<table id="tb"><tr><th>TYPE</th><th>PARAMS</th><th>TRAIN</th><th>VAL</th><th>HOLD</th></tr></table>
+<canvas id="cv" width="700" height="220"></canvas>
+<div class="small">Equity ng pinakamagandang survivor. Putol-putol na linya = hangganan ng train, validation, at holdout.</div>
+</div>
+
+<div class="card">
+<div style="color:var(--g);font-weight:700">Paper trading (walang totoong order)</div>
+<div class="small">Kukunin ang pinakamagandang survivor at susundan ang bagong candles gamit ang pekeng pera. Tumatakbo lang habang bukas ang tab na ito. Naka-save sa browser mo.</div>
+<button id="pGo" class="on">START PAPER</button><button id="pStop">STOP</button><button id="pRst">RESET</button>
+<div class="small" id="pM" style="margin-top:10px">Patakbuhin muna ang search hanggang may survivor.</div>
+<div id="pS" style="margin:10px 0"></div>
+<table id="pT"></table>
+</div>
+
+<script>
+const NAMES=["Trend","Mean revert","Vol breakout","Dip buy"], COL=["#22ff66","#38bdf8","#fb923c","#c084fc"];
+let D=[],cache={},P={},survivors=[];
+const $=id=>document.getElementById(id);
+const C=(k,f)=>cache[k]||(cache[k]=f());
+function sma(n){return C("s"+n,()=>{const a=new Float64Array(D.length).fill(NaN);let s=0;for(let i=0;i<D.length;i++){s+=D[i].c;if(i>=n)s-=D[i-n].c;if(i>=n-1)a[i]=s/n}return a})}
+function atr(){return C("a",()=>{const a=new Float64Array(D.length).fill(NaN);let s=0;const n=14,tr=[];for(let i=0;i<D.length;i++){const p=i?D[i-1].c:D[i].o;tr.push(Math.max(D[i].h-D[i].l,Math.abs(D[i].h-p),Math.abs(D[i].l-p)));s+=tr[i];if(i>=n)s-=tr[i-n];if(i>=n-1)a[i]=s/n}return a})}
+function ext(n,hi){return C((hi?"h":"l")+n,()=>{const a=new Float64Array(D.length).fill(NaN);for(let i=n;i<D.length;i++){let m=hi?-1e18:1e18;for(let j=i-n;j<i;j++)m=hi?Math.max(m,D[j].h):Math.min(m,D[j].l);a[i]=m}return a})}
+function sig(c,j){
+  const p=D[j].c,at=atr()[j];if(!(at>0))return 0;
+  if(c.t===0){const f=sma(c.a)[j],s=sma(c.b)[j];if(p>f&&f>s)return 1;if(p<f&&f<s)return P.sh?-1:0}
+  else if(c.t===1){const z=(p-sma(c.a)[j])/at;if(z<-c.k)return 1;if(z>c.k)return P.sh?-1:0}
+  else if(c.t===2){if(p>ext(c.a,1)[j])return 1;if(p<ext(c.a,0)[j])return P.sh?-1:0}
+  else{if(p<sma(c.a)[j]-c.k*at)return 1}
+  return 0}
+function bt(c,a,b,wantCurve){
+  const A=atr();let eq=1,pos=null,n=0,gw=0,gl=0,peak=1,dd=0;const curve=wantCurve?[]:null;
+  for(let i=Math.max(a,2);i<b;i++){
+    const bar=D[i];
+    if(!pos){const s=sig(c,i-1),at=A[i-1];
+      if(s&&at>0){const en=bar.o*(1+s*P.slip),d=c.sl*at;pos={s,en,sl:en-s*d,tp:en+s*c.tp*at,nt:Math.min(P.risk/(d/en),P.lev),k:0}}}
+    if(pos){pos.k++;const s=pos.s;let ex=null;
+      if(s===1?bar.l<=pos.sl:bar.h>=pos.sl)ex=pos.sl*(1-s*P.slip);
+      else if(s===1?bar.h>=pos.tp:bar.l<=pos.tp)ex=pos.tp;
+      else if(pos.k>=c.hold)ex=bar.c*(1-s*P.slip);
+      if(ex!==null){const r=(s*(ex-pos.en)/pos.en-2*P.fee)*pos.nt;eq*=1+r;n++;r>0?gw+=r:gl-=r;pos=null;peak=Math.max(peak,eq);dd=Math.min(dd,eq/peak-1)}}
+    if(curve)curve.push(eq)}
+  return{ret:eq-1,n,pf:gl?gw/gl:(gw?9:0),dd,curve}}
+const rnd=(a,b)=>a+Math.random()*(b-a),ri=(a,b)=>Math.floor(rnd(a,b+1));
+function gen(){const t=ri(0,3),c={t,tp:+rnd(1,4).toFixed(1),sl:+rnd(.5,2).toFixed(1),hold:ri(6,72)};
+  if(t===0){c.a=ri(5,40);c.b=ri(c.a+10,150)}else if(t===2)c.a=ri(10,100);else{c.a=ri(10,60);c.k=+rnd(1,3.5).toFixed(1)}
+  return c}
+const ok=(r,m,pf)=>r.ret>0&&r.n>=m&&r.pf>=pf;
+function desc(c){const x=c.t===0?`SMA ${c.a}/${c.b}`:c.t===2?`N ${c.a}`:`SMA ${c.a} k${c.k}`;return `${x} TP${c.tp} SL${c.sl} H${c.hold}`}
+function synth(n){let p=60000,t=Date.now()-n*36e5,s=7;const r=()=>(s=(s*1664525+1013904223)>>>0)/4294967296,g=()=>Math.sqrt(-2*Math.log(r()+1e-12))*Math.cos(6.2832*r()),o=[];
+  for(let i=0;i<n;i++){const op=p;p*=Math.exp(.006*g());const sp=Math.abs(.003*g());o.push({t:t+i*36e5,o:op,h:Math.max(op,p)*(1+sp),l:Math.min(op,p)*(1-sp),c:p})}return o}
+//UI
+async function load(src,days){
+  const end=Date.now(),start=end-days*864e5,out=[];
+  if(src==="hl"){let s=start,last=0;while(s<end){
+      const r=await fetch("https://api.hyperliquid.xyz/info",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"candleSnapshot",req:{coin:"BTC",interval:"1h",startTime:s,endTime:end}})});
+      if(!r.ok)throw new Error("Hyperliquid HTTP "+r.status);const b=await r.json();if(!b.length)break;
+      for(const x of b)out.push({t:x.t,o:+x.o,h:+x.h,l:+x.l,c:+x.c});
+      const l=b[b.length-1].t;if(l<=last)break;last=l;s=l+1}}
+  else if(src==="bn"){let s=start;while(s<end){
+      const r=await fetch(`https://fapi.binance.com/fapi/v1/klines?symbol=BTCUSDT&interval=1h&limit=1500&startTime=${s}`);
+      if(!r.ok)throw new Error("Binance HTTP "+r.status);const b=await r.json();if(!b.length)break;
+      for(const x of b)out.push({t:x[0],o:+x[1],h:+x[2],l:+x[3],c:+x[4]});
+      s=b[b.length-1][0]+1;if(b.length<1500)break}}
+  else{let e=end;while(e>start){
+      const r=await fetch(`https://api.bybit.com/v5/market/kline?category=linear&symbol=BTCUSDT&interval=60&limit=1000&end=${e}`);
+      if(!r.ok)throw new Error("Bybit HTTP "+r.status);const b=(await r.json()).result.list;if(!b.length)break;
+      for(const x of b)out.push({t:+x[0],o:+x[1],h:+x[2],l:+x[3],c:+x[4]});
+      e=+b[b.length-1][0]-1}}
+  const m=new Map();out.forEach(x=>m.set(x.t,x));return[...m.values()].sort((a,b)=>a.t-b.t)}
+const pc=x=>(x*100).toFixed(1)+"%";
+async function go(real){
+  P={fee:+$("fee").value/100,slip:+$("slip").value/100,risk:+$("risk").value/100,lev:+$("lev").value,sh:+$("sh").value};
+  const N=+$("nc").value;cache={};survivors=[];
+  ["bR","bS"].forEach(i=>$(i).disabled=true);
+  try{
+    $("status").textContent=real?"Kumukuha ng data...":"Gumagawa ng random data...";
+    D=real?await load($("src").value,+$("days").value):synth(+$("days").value*24);
+    if(D.length<500)throw new Error("Kulang ang data ("+D.length+" candles)");
+    const i1=Math.floor(D.length*.6),i2=Math.floor(D.length*.8),L=D.length;
+    let p2=0,p3=0,p4=0;const ty=[0,0,0,0];
+    $("sN").textContent=N.toLocaleString();$("p1").textContent=N;
+    for(let k=0;k<N;k++){
+      const c=gen(),tr=bt(c,0,i1);
+      if(ok(tr,30,1.2)){p2++;const va=bt(c,i1,i2);
+        if(ok(va,10,1.1)){p3++;const ho=bt(c,i2,L);
+          if(ok(ho,10,1.1)){p4++;ty[c.t]++;survivors.push({c,tr,va,ho})}}}
+      if(k%100===99||k===N-1){
+        $("p2").textContent=p2;$("p3").textContent=p3;$("p4").textContent=p4;$("sS").textContent=p4;
+        $("sK").textContent=((N-p4)/N*100).toFixed(1)+"%";ty.forEach((v,i)=>$("t"+i).textContent=v);
+        $("status").textContent=`Tumatakbo ${k+1}/${N}...`;await new Promise(r=>setTimeout(r))}}
+    survivors.sort((a,b)=>b.ho.ret-a.ho.ret);
+    $("status").textContent=`Tapos. ${D.length} candles (${new Date(D[0].t).toLocaleDateString()} – ${new Date(D[L-1].t).toLocaleDateString()}).`;
+    render(i1,i2,N);
+  }catch(e){$("status").textContent="Error: "+e.message+". Subukan ang ibang data source, o buksan ito sa sarili mong browser (hindi sa claude.ai)."}
+  ["bR","bS"].forEach(i=>$(i).disabled=false)}
+function render(i1,i2,N){
+  const t=$("tb");t.innerHTML="<tr><th>TYPE</th><th>PARAMS</th><th>TRAIN</th><th>VAL</th><th>HOLD</th></tr>";
+  survivors.slice(0,10).forEach(s=>{t.insertAdjacentHTML("beforeend",`<tr><td style="color:${COL[s.c.t]}">${NAMES[s.c.t]}</td><td>${desc(s.c)}</td><td>${pc(s.tr.ret)}</td><td>${pc(s.va.ret)}</td><td>${pc(s.ho.ret)}</td></tr>`)});
+  const cv=$("cv"),x=cv.getContext("2d");cv.width=cv.clientWidth*2;cv.height=440;x.clearRect(0,0,cv.width,cv.height);
+  $("verdict").innerHTML=survivors.length?
+    `<div class="msg">${survivors.length} survivor sa ${N.toLocaleString()} configs. Mag-ingat: kapag marami kang sinusubok, may papasa kahit swerte lang (multiple testing). Ang tunay na pagsubok ay ang bagong data sa paper trading, hindi ang backtest na ito.</div>`:
+    `<div class="msg">0 survivors sa ${N.toLocaleString()} configs. Normal ito. Ibig sabihin, walang nakitang edge na tumagal sa train, validation, at holdout pagkatapos ng fees at slippage.</div>`;
+  if(!survivors.length)return;
+  const b=survivors[0],cur=bt(b.c,0,D.length,true).curve,mn=Math.min(...cur),mx=Math.max(...cur),W=cv.width,H=cv.height,pd=16;
+  const X=i=>pd+i/(cur.length-1)*(W-2*pd),Y=v=>H-pd-(v-mn)/((mx-mn)||1)*(H-2*pd);
+  x.strokeStyle="#14532d";x.setLineDash([6,6]);[i1,i2].forEach(i=>{x.beginPath();x.moveTo(X(i),0);x.lineTo(X(i),H);x.stroke()});x.setLineDash([]);
+  x.strokeStyle=COL[b.c.t];x.lineWidth=2.5;x.beginPath();cur.forEach((v,i)=>i?x.lineTo(X(i),Y(v)):x.moveTo(X(i),Y(v)));x.stroke()}
+$("bR").onclick=()=>go(true);$("bS").onclick=()=>go(false);
+$("bX").onclick=()=>{const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([JSON.stringify(survivors.map(s=>({type:NAMES[s.c.t],cfg:s.c,train:s.tr.ret,val:s.va.ret,hold:s.ho.ret})),null,1)],{type:"application/json"}));a.download="survivors.json";a.click()};
+/* PAPER TRADING */
+let PT=null,timer=null;const PK="paperState";
+const readP=()=>({fee:+$("fee").value/100,slip:+$("slip").value/100,risk:+$("risk").value/100,lev:+$("lev").value,sh:+$("sh").value});
+function pSave(){try{localStorage.setItem(PK,JSON.stringify(PT))}catch(e){}}
+function pRender(){
+  if(!PT){$("pS").textContent="";$("pT").innerHTML="";return}
+  $("pS").textContent=`${NAMES[PT.c.t]} ${desc(PT.c)} · equity ${PT.eq.toFixed(4)}x · closed trades ${PT.tr.length}`+(PT.pos?` · OPEN ${PT.pos.s===1?"LONG":"SHORT"} @ ${PT.pos.en.toFixed(1)}`:"");
+  const t=$("pT");t.innerHTML="<tr><th>OPENED</th><th>SIDE</th><th>ENTRY</th><th>EXIT</th><th>RET</th></tr>";
+  PT.tr.slice(-15).reverse().forEach(x=>t.insertAdjacentHTML("beforeend",`<tr><td>${new Date(x.t0).toLocaleString()}</td><td>${x.s===1?"LONG":"SHORT"}</td><td>${x.en.toFixed(1)}</td><td>${x.ex.toFixed(1)}</td><td>${pc(x.r)}</td></tr>`))}
+function pStep(i){
+  const bar=D[i],A=atr(),c=PT.c;
+  if(!PT.pos){const s=sig(c,i-1),at=A[i-1];
+    if(s&&at>0){const en=bar.o*(1+s*P.slip),d=c.sl*at;PT.pos={s,en,sl:en-s*d,tp:en+s*c.tp*at,nt:Math.min(P.risk/(d/en),P.lev),k:0,t0:bar.t}}}
+  const pos=PT.pos;
+  if(pos){pos.k++;const s=pos.s;let ex=null;
+    if(s===1?bar.l<=pos.sl:bar.h>=pos.sl)ex=pos.sl*(1-s*P.slip);
+    else if(s===1?bar.h>=pos.tp:bar.l<=pos.tp)ex=pos.tp;
+    else if(pos.k>=c.hold)ex=bar.c*(1-s*P.slip);
+    if(ex!==null){const r=(s*(ex-pos.en)/pos.en-2*P.fee)*pos.nt;PT.eq*=1+r;PT.tr.push({t0:pos.t0,s,en:pos.en,ex,r});PT.pos=null}}
+  PT.lastT=bar.t}
+async function pTick(){
+  if(!PT)return;
+  try{P=readP();D=await load($("src").value,30);cache={};const now=Date.now();
+    for(let i=1;i<D.length;i++){const b=D[i];if(b.t>PT.lastT&&b.t+36e5<=now)pStep(i)}
+    pSave();pRender();$("pM").textContent="Huling check: "+new Date().toLocaleTimeString()+" (kada 1 minuto; ang signal ay sa bawat saradong 1h candle)"}
+  catch(e){$("pM").textContent="Error: "+e.message}}
+function pRun(){clearInterval(timer);timer=setInterval(pTick,60000);pTick()}
+$("pGo").onclick=async()=>{
+  if(!survivors.length){$("pM").textContent="Walang survivor. Patakbuhin muna ang search hanggang may lumabas.";return}
+  try{P=readP();D=await load($("src").value,30);cache={};
+    const last=D.filter(b=>b.t+36e5<=Date.now()).pop();
+    PT={c:survivors[0].c,eq:1,pos:null,tr:[],lastT:last.t};pSave();pRender();pRun()}
+  catch(e){$("pM").textContent="Error: "+e.message}};
+$("pStop").onclick=()=>{clearInterval(timer);$("pM").textContent="Nakatigil. I-refresh ang page para ituloy ang naka-save na paper trades."};
+$("pRst").onclick=()=>{clearInterval(timer);PT=null;try{localStorage.removeItem(PK)}catch(e){}pRender();$("pM").textContent="Na-reset."};
+try{const s=localStorage.getItem(PK);if(s){PT=JSON.parse(s);pRender();pRun()}}catch(e){}
+</script></body></html>
