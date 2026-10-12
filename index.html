@@ -76,16 +76,16 @@ canvas{width:100%;height:220px;margin-top:10px;background:#08110b;border-radius:
 
 <div class="card">
 <div style="color:var(--g);font-weight:700">Paper trading (walang totoong order)</div>
-<div class="small">Kukunin ang pinakamagandang survivor at susundan ang bagong candles gamit ang pekeng pera. Tumatakbo lang habang bukas ang tab na ito. Naka-save sa browser mo.</div>
+<div class="small">Kukunin ang pinakamagandang survivor (o, kung wala, ang pinakamalapit sa pagpasa bilang PRACTICE na hindi napatunayan) at susundan ang bagong candles gamit ang pekeng pera. Tumatakbo lang habang bukas ang tab na ito. Naka-save sa browser mo.</div>
 <button id="pGo" class="on">START PAPER</button><button id="pStop">STOP</button><button id="pRst">RESET</button>
-<div class="small" id="pM" style="margin-top:10px">Patakbuhin muna ang search hanggang may survivor.</div>
+<div class="small" id="pM" style="margin-top:10px">Patakbuhin muna ang search (RUN), tapos pindutin ang START PAPER.</div>
 <div id="pS" style="margin:10px 0"></div>
 <table id="pT"></table>
 </div>
 
 <script>
 const NAMES=["Trend","Mean revert","Vol breakout","Dip buy"], COL=["#22ff66","#38bdf8","#fb923c","#c084fc"];
-let D=[],cache={},P={},survivors=[];
+let D=[],cache={},P={},survivors=[],bestCfg=null;
 const $=id=>document.getElementById(id);
 const C=(k,f)=>cache[k]||(cache[k]=f());
 function sma(n){return C("s"+n,()=>{const a=new Float64Array(D.length).fill(NaN);let s=0;for(let i=0;i<D.length;i++){s+=D[i].c;if(i>=n)s-=D[i-n].c;if(i>=n-1)a[i]=s/n}return a})}
@@ -150,10 +150,10 @@ async function go(real){
     D=real?await load($("src").value,+$("days").value):synth(+$("days").value*24);
     if(D.length<500)throw new Error("Kulang ang data ("+D.length+" candles)");
     const i1=Math.floor(D.length*.6),i2=Math.floor(D.length*.8),L=D.length;
-    let p2=0,p3=0,p4=0;const ty=[0,0,0,0];
+    let p2=0,p3=0,p4=0,best=null;const ty=[0,0,0,0];bestCfg=null;
     $("sN").textContent=N.toLocaleString();$("p1").textContent=N;
     for(let k=0;k<N;k++){
-      const c=gen(),tr=bt(c,0,i1);
+      const c=gen(),tr=bt(c,0,i1);if(tr.n>=10&&(!best||tr.ret>best.tr.ret)){best={c,tr};bestCfg=best}
       if(ok(tr,30,1.2)){p2++;const va=bt(c,i1,i2);
         if(ok(va,10,1.1)){p3++;const ho=bt(c,i2,L);
           if(ok(ho,10,1.1)){p4++;ty[c.t]++;survivors.push({c,tr,va,ho})}}}
@@ -161,6 +161,7 @@ async function go(real){
         $("p2").textContent=p2;$("p3").textContent=p3;$("p4").textContent=p4;$("sS").textContent=p4;
         $("sK").textContent=((N-p4)/N*100).toFixed(1)+"%";ty.forEach((v,i)=>$("t"+i).textContent=v);
         $("status").textContent=`Tumatakbo ${k+1}/${N}...`;await new Promise(r=>setTimeout(r))}}
+    $("status").textContent="Tapos ang scan. Inaayos ang resulta...";await new Promise(r=>setTimeout(r,30));
     survivors.sort((a,b)=>b.ho.ret-a.ho.ret);
     $("status").textContent=`Tapos. ${D.length} candles (${new Date(D[0].t).toLocaleDateString()} – ${new Date(D[L-1].t).toLocaleDateString()}).`;
     render(i1,i2,N);
@@ -169,15 +170,19 @@ async function go(real){
 function render(i1,i2,N){
   const t=$("tb");t.innerHTML="<tr><th>TYPE</th><th>PARAMS</th><th>TRAIN</th><th>VAL</th><th>HOLD</th></tr>";
   survivors.slice(0,10).forEach(s=>{t.insertAdjacentHTML("beforeend",`<tr><td style="color:${COL[s.c.t]}">${NAMES[s.c.t]}</td><td>${desc(s.c)}</td><td>${pc(s.tr.ret)}</td><td>${pc(s.va.ret)}</td><td>${pc(s.ho.ret)}</td></tr>`)});
-  const cv=$("cv"),x=cv.getContext("2d");cv.width=cv.clientWidth*2;cv.height=440;x.clearRect(0,0,cv.width,cv.height);
+  const cv=$("cv"),x=cv.getContext("2d");cv.width=(cv.clientWidth||600)*2;cv.height=440;x.clearRect(0,0,cv.width,cv.height);
   $("verdict").innerHTML=survivors.length?
     `<div class="msg">${survivors.length} survivor sa ${N.toLocaleString()} configs. Mag-ingat: kapag marami kang sinusubok, may papasa kahit swerte lang (multiple testing). Ang tunay na pagsubok ay ang bagong data sa paper trading, hindi ang backtest na ito.</div>`:
     `<div class="msg">0 survivors sa ${N.toLocaleString()} configs. Normal ito. Ibig sabihin, walang nakitang edge na tumagal sa train, validation, at holdout pagkatapos ng fees at slippage.</div>`;
   if(!survivors.length)return;
-  const b=survivors[0],cur=bt(b.c,0,D.length,true).curve,mn=Math.min(...cur),mx=Math.max(...cur),W=cv.width,H=cv.height,pd=16;
-  const X=i=>pd+i/(cur.length-1)*(W-2*pd),Y=v=>H-pd-(v-mn)/((mx-mn)||1)*(H-2*pd);
-  x.strokeStyle="#14532d";x.setLineDash([6,6]);[i1,i2].forEach(i=>{x.beginPath();x.moveTo(X(i),0);x.lineTo(X(i),H);x.stroke()});x.setLineDash([]);
-  x.strokeStyle=COL[b.c.t];x.lineWidth=2.5;x.beginPath();cur.forEach((v,i)=>i?x.lineTo(X(i),Y(v)):x.moveTo(X(i),Y(v)));x.stroke()}
+  try{
+    const b=survivors[0],full=bt(b.c,0,D.length,true).curve,st=Math.max(1,Math.floor(full.length/500)),cur=[];
+    for(let i=0;i<full.length;i+=st)cur.push(full[i]);
+    let mn=Infinity,mx=-Infinity;for(const v of cur){if(v<mn)mn=v;if(v>mx)mx=v}
+    const W=cv.width,H=cv.height,pd=16,X=i=>pd+i/(cur.length-1||1)*(W-2*pd),Y=v=>H-pd-(v-mn)/((mx-mn)||1)*(H-2*pd);
+    x.strokeStyle="#14532d";x.lineWidth=2;[i1,i2].forEach(i=>{const px=X(i/st);x.beginPath();x.moveTo(px,0);x.lineTo(px,H);x.stroke()});
+    x.strokeStyle=COL[b.c.t];x.lineWidth=3;x.beginPath();cur.forEach((v,i)=>i?x.lineTo(X(i),Y(v)):x.moveTo(X(i),Y(v)));x.stroke();
+  }catch(e){$("status").textContent+=" (Hindi nailabas ang chart: "+e.message+")"}}
 $("bR").onclick=()=>go(true);$("bS").onclick=()=>go(false);
 $("bX").onclick=()=>{const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([JSON.stringify(survivors.map(s=>({type:NAMES[s.c.t],cfg:s.c,train:s.tr.ret,val:s.va.ret,hold:s.ho.ret})),null,1)],{type:"application/json"}));a.download="survivors.json";a.click()};
 window.addEventListener("error",e=>{$("status").textContent="JS error: "+e.message});
@@ -188,7 +193,7 @@ const readP=()=>({fee:+$("fee").value/100,slip:+$("slip").value/100,risk:+$("ris
 function pSave(){try{localStorage.setItem(PK,JSON.stringify(PT))}catch(e){}}
 function pRender(){
   if(!PT){$("pS").textContent="";$("pT").innerHTML="";return}
-  $("pS").textContent=`${NAMES[PT.c.t]} ${desc(PT.c)} · equity ${PT.eq.toFixed(4)}x · closed trades ${PT.tr.length}`+(PT.pos?` · OPEN ${PT.pos.s===1?"LONG":"SHORT"} @ ${PT.pos.en.toFixed(1)}`:"");
+  $("pS").textContent=`${PT.prac?"PRACTICE (hindi napatunayan, pang-aral lang) · ":""}${NAMES[PT.c.t]} ${desc(PT.c)} · equity ${PT.eq.toFixed(4)}x · closed trades ${PT.tr.length}`+(PT.pos?` · OPEN ${PT.pos.s===1?"LONG":"SHORT"} @ ${PT.pos.en.toFixed(1)}`:"");
   const t=$("pT");t.innerHTML="<tr><th>OPENED</th><th>SIDE</th><th>ENTRY</th><th>EXIT</th><th>RET</th></tr>";
   PT.tr.slice(-15).reverse().forEach(x=>t.insertAdjacentHTML("beforeend",`<tr><td>${new Date(x.t0).toLocaleString()}</td><td>${x.s===1?"LONG":"SHORT"}</td><td>${x.en.toFixed(1)}</td><td>${x.ex.toFixed(1)}</td><td>${pc(x.r)}</td></tr>`))}
 function pStep(i){
@@ -210,10 +215,11 @@ async function pTick(){
   catch(e){$("pM").textContent="Error: "+e.message}}
 function pRun(){clearInterval(timer);timer=setInterval(pTick,60000);pTick()}
 $("pGo").onclick=async()=>{
-  if(!survivors.length){$("pM").textContent="Walang survivor. Patakbuhin muna ang search hanggang may lumabas.";return}
-  try{P=readP();D=await load($("src").value,30);cache={};delete survivors[0].c.r;
+  const pick=survivors.length?survivors[0].c:(bestCfg&&bestCfg.c);
+  if(!pick){$("pM").textContent="Patakbuhin muna ang search (RUN) bago mag-paper trade.";return}
+  try{P=readP();D=await load($("src").value,30);cache={};delete pick.r;
     const last=D.filter(b=>b.t+36e5<=Date.now()).pop();
-    PT={c:survivors[0].c,eq:1,pos:null,tr:[],lastT:last.t};pSave();pRender();pRun()}
+    PT={c:pick,prac:!survivors.length,eq:1,pos:null,tr:[],lastT:last.t};pSave();pRender();pRun()}
   catch(e){$("pM").textContent="Error: "+e.message}};
 $("pStop").onclick=()=>{clearInterval(timer);$("pM").textContent="Nakatigil. I-refresh ang page para ituloy ang naka-save na paper trades."};
 $("pRst").onclick=()=>{clearInterval(timer);PT=null;try{localStorage.removeItem(PK)}catch(e){}pRender();$("pM").textContent="Na-reset."};
